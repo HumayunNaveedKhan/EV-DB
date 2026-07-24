@@ -2,7 +2,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#070A0F">
-<title>EVBIKE 01 · Fleet Telematics</title>
+<title>EVBIKE 01 &middot; Fleet Telematics</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!--
@@ -114,13 +114,24 @@ filter:invert(100%) hue-rotate(180deg) brightness(93%) contrast(88%)}
 .sw .k{font-size:8.5px;letter-spacing:1.3px;color:var(--dim);text-transform:uppercase}
 .sw .v{font:700 17px var(--mono);margin-top:4px;letter-spacing:1px}
 .sw .a{font:9px var(--mono);color:var(--faint);margin-top:2px}
-.btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.btn{padding:13px 8px;border-radius:10px;border:1px solid var(--rule);background:var(--panel2);
-color:var(--ink);font:600 11.5px system-ui;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;transition:.14s}
-.btn:active{transform:scale(.975)}
-.btn.en{border-color:rgba(61,220,151,.4);color:var(--live)}
-.btn.di{border-color:rgba(255,92,110,.4);color:var(--alarm)}
-.btn:disabled{opacity:.26;cursor:not-allowed}
+.swrow{display:flex;align-items:center;justify-content:space-between;padding:14px 4px;border-bottom:1px solid var(--rule)}
+.swrow:last-of-type{border-bottom:none}
+.swrow .lab{display:flex;flex-direction:column;gap:3px}
+.swrow .lab b{font-size:14px;font-weight:600;letter-spacing:.2px}
+.swrow .lab span{font:10px var(--mono);color:var(--dim);letter-spacing:.3px}
+.tgl{position:relative;width:54px;height:32px;flex:none;border-radius:99px;background:var(--panel2);
+border:1px solid var(--rule);cursor:pointer;transition:background .3s,border-color .3s}
+.tgl .knob{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#5a6675;
+box-shadow:0 1px 3px rgba(0,0,0,.5);transition:transform .28s cubic-bezier(.4,.1,.2,1),background .3s;
+display:flex;align-items:center;justify-content:center}
+.tgl.on{background:rgba(61,220,151,.9);border-color:transparent}
+.tgl.on .knob{transform:translateX(22px);background:#fff}
+.tgl.busy{pointer-events:none}.tgl.busy .knob{background:#fff}
+.tgl .spin{display:none;width:12px;height:12px;border:2px solid rgba(0,0,0,.25);
+border-top-color:#111;border-radius:50%;animation:spin .6s linear infinite}
+.tgl.busy .spin{display:block}
+.tgl.dis{opacity:.32;pointer-events:none}
+@keyframes spin{to{transform:rotate(360deg)}}
 .note{margin-top:11px;padding:10px 11px;border-radius:8px;font-size:10.5px;line-height:1.55;
 background:rgba(245,165,36,.07);border:1px solid rgba(245,165,36,.26);color:var(--charge)}
 .res{margin-top:9px;text-align:center;font:600 11px var(--mono);color:var(--dim);min-height:14px}
@@ -206,18 +217,19 @@ background:rgba(245,165,36,.07);border:1px solid rgba(245,165,36,.26);color:var(
 </div>
 
 <div class="card">
-  <div class="hdr"><div class="t">Power path</div><span class="tag" id="busytag" style="display:none">WORKING</span></div>
-  <div class="pp">
-    <div class="sw"><div class="k">Charge</div><div class="v" id="swChg">--</div><div class="a" id="aChg">&nbsp;</div></div>
-    <div class="sw"><div class="k">Discharge</div><div class="v" id="swDsg">--</div><div class="a" id="aDsg">&nbsp;</div></div>
+  <div class="hdr"><div class="t">Immobilizer &amp; charge control</div>
+    <span class="tag" id="busytag" style="display:none">WORKING</span></div>
+
+  <div class="swrow">
+    <div class="lab"><b>Charging</b><span id="aChg">charge MOSFET</span></div>
+    <div class="tgl" id="tChg" onclick="toggle('chg')"><div class="knob"><div class="spin"></div></div></div>
   </div>
-  <div class="btns">
-    <button class="btn en" id="bChgOn"  onclick="sw('chg',1)">Charge on</button>
-    <button class="btn di" id="bChgOff" onclick="sw('chg',0)">Charge off</button>
-    <button class="btn en" id="bDsgOn"  onclick="sw('dsg',1)">Discharge on</button>
-    <button class="btn di" id="bDsgOff" onclick="sw('dsg',0)">Discharge off</button>
+  <div class="swrow">
+    <div class="lab"><b>Drive power</b><span id="aDsg">discharge MOSFET</span></div>
+    <div class="tgl crit" id="tDsg" onclick="toggle('dsg')"><div class="knob"><div class="spin"></div></div></div>
   </div>
-  <div class="note" id="note">Discharge off cuts drive power. The bike refuses it while moving or drawing current.</div>
+
+  <div class="note" id="note">Turning drive power off immobilizes the bike. Refused while moving or drawing 5 A or more.</div>
   <div class="res" id="res">ready</div>
 </div>
 
@@ -281,10 +293,17 @@ onAuthStateChanged(auth, u => {
 });
 
 // ---- control --------------------------------------------------------------
+// iOS toggle: flips from the confirmed hardware state the bike last reported
+window.toggle = function (fet) {
+  const el = document.getElementById(fet === 'chg' ? 'tChg' : 'tDsg');
+  if (el.classList.contains('dis') || el.classList.contains('busy')) return;
+  window.sw(fet, el.classList.contains('on') ? 0 : 1);
+};
+
 window.sw = function (fet, on) {
   if (!user) return;
   if (fet === 'dsg' && !on) {
-    if (!confirm('Turn discharge off?\n\nThis cuts drive power to the bike. Only do this when the bike is parked and nobody is riding it.')) return;
+    if (!confirm('Turn drive power off?\n\nThis immobilizes the bike by cutting drive power. Only do this when the bike is parked and nobody is riding it.')) return;
   }
   const ts = Date.now();
   lastSentTs = ts;
@@ -379,26 +398,27 @@ function paint(d) {
   }
   $('km').textContent = (d.km || 0).toFixed(1) + ' km';
 
-  const put = (id2, on) => { $(id2).textContent = on ? 'ON' : 'OFF';
-                             $(id2).style.color = on ? '#3DDC97' : '#FF5C6E'; };
-  put('swChg', d.chg); put('swDsg', d.dsg);
-  $('aChg').textContent = d.chg && ic > 0.1 ? ic.toFixed(1) + ' A in' : '\u00a0';
-  $('aDsg').textContent = d.dsg && id > 0.1 ? id.toFixed(1) + ' A out' : '\u00a0';
-
   const busy = d.busy == 1, live = d.bmsok == 1 && fresh;
+  const tChg = $('tChg'), tDsg = $('tDsg');
+  tChg.classList.toggle('on', !!d.chg);
+  tDsg.classList.toggle('on', !!d.dsg);
+  tChg.classList.toggle('busy', busy);
+  tDsg.classList.toggle('busy', busy);
+  // lock a toggle when the action it would trigger cannot succeed
+  tChg.classList.toggle('dis', !live || (!d.chg && d.canchg == 0));
+  tDsg.classList.toggle('dis', !live || (d.dsg && d.canoff == 0));
+  $('aChg').textContent = d.chg ? (ic > 0.1 ? ic.toFixed(1) + ' A flowing in' : 'enabled, idle') : 'charging blocked';
+  $('aDsg').textContent = d.dsg ? (id > 0.1 ? id.toFixed(1) + ' A drive draw' : 'enabled, idle') : 'IMMOBILIZED';
+
   $('busytag').style.display = busy ? 'inline-block' : 'none';
   $('busytag').style.background = 'rgba(245,165,36,.14)';
   $('busytag').style.color = '#F5A524';
-  $('bChgOn').disabled  = !live || busy || d.canchg == 0;
-  $('bChgOff').disabled = !live || busy;
-  $('bDsgOn').disabled  = !live || busy;
-  $('bDsgOff').disabled = !live || busy || d.canoff == 0;
 
-  if (!fresh)          $('note').textContent = 'The bike has stopped reporting. Controls are unavailable.';
+  if (!fresh)          $('note').textContent = 'The bike is offline. Controls are unavailable.';
   else if (!live)      $('note').textContent = 'Controls need a live BMS link.';
-  else if (!d.dsg)     $('note').textContent = 'Charge cannot be switched on while discharge is off. The BMS blocks it. Turn discharge on first.';
-  else if (d.canoff==0)$('note').textContent = 'Discharge off is blocked: ' + (d.why || 'not safe right now') + '.';
-  else                 $('note').textContent = 'Discharge off cuts drive power. Park the bike before using it.';
+  else if (!d.dsg)     $('note').textContent = 'Bike is immobilized. Turn drive power on to release it. Charging stays locked until then.';
+  else if (d.canoff==0)$('note').textContent = 'Cannot immobilize now: ' + (d.why || 'not safe') + '. Park and drop below 5 A.';
+  else                 $('note').textContent = 'Turning drive power off immobilizes the bike. Only when parked and below 5 A.';
 
   const hb = $('hb'); hb.textContent = d.hv || '--';
   const col = {'HEALTHY':'#3DDC97','UNDER LOAD':'#4CC9F0','WATCH':'#F5A524',
