@@ -1,284 +1,482 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#080b10">
-  <title>EV Bike Telemetry & Actuation Dashboard</title>
-  
-  <!-- Leaflet Maps CSS & JS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#070A0F">
+<title>EVBIKE 01 &middot; Fleet Telematics</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!--
+  ===========================================================================
+   EV BIKE FLEET DASHBOARD
+   Deploy to: https://humayunnaveedkhan.github.io/EV-DB/
+   Save this file as  index.html  in the repo root, commit, push.
+  ===========================================================================
+   Because this page is public, it CANNOT hold a secret. Anything embedded
+   here is readable by anyone who views source. That is why control is gated
+   behind Firebase Authentication rather than a token: the database rules,
+   not this page, are what actually enforce access.
 
-  <style>
-    * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-    :root {
-      --bg: #080b10; --card: #121821; --card2: #0e141c; --line: #1f2937;
-      --tx: #e8eef7; --dim: #7d8da3; --ok: #00e08a; --warn: #ffb020;
-      --bad: #ff4d5e; --acc: #38bdf8; --vio: #a78bfa;
-    }
-    body {
-      background: var(--bg); color: var(--tx);
-      font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 14px; padding-bottom: 40px; max-width: 520px; margin: 0 auto;
-    }
+   SETUP
+     1. Firebase console -> Project settings -> General -> Your apps ->
+        Web app. Copy apiKey / authDomain / databaseURL into CFG below.
+     2. Authentication -> Sign-in method -> enable Email/Password.
+     3. Authentication -> Users -> Add user (that is your dashboard login,
+        and a separate one for the bike node).
+     4. Realtime Database -> Rules: require auth on bike / cmd / ack.
+  ===========================================================================
+-->
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+--void:#070A0F;--panel:#0F151E;--panel2:#141C28;--rule:#212C3B;
+--ink:#E6EDF6;--dim:#7A8BA3;--faint:#4A5568;
+--live:#3DDC97;--flow:#4CC9F0;--charge:#F5A524;--alarm:#FF5C6E;
+--mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace}
+html,body{background:var(--void)}
+body{color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+padding:16px 14px 44px;max-width:560px;margin:0 auto}
 
-    /* Target Host Configuration Bar */
-    .config-bar { display: flex; gap: 8px; margin-bottom: 14px; background: var(--card); padding: 10px; border-radius: 12px; border: 1px solid var(--line); }
-    .config-bar input { flex: 1; background: var(--card2); border: 1px solid var(--line); color: var(--tx); padding: 8px 12px; border-radius: 8px; font-size: 13px; outline: none; }
-    .config-bar button { background: var(--acc); color: #000; border: none; padding: 8px 14px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+/* ---- login gate ---- */
+#gate{position:fixed;inset:0;background:var(--void);display:flex;align-items:center;
+justify-content:center;padding:24px;z-index:9999}
+#gate .box{width:100%;max-width:330px}
+#gate h2{font-size:15px;letter-spacing:2.4px;margin-bottom:6px}
+#gate p{font-size:11.5px;color:var(--dim);margin-bottom:20px;line-height:1.6}
+#gate input{width:100%;padding:12px 13px;margin-bottom:9px;border-radius:9px;
+background:var(--panel);border:1px solid var(--rule);color:var(--ink);
+font:14px var(--mono)}
+#gate input:focus{outline:none;border-color:var(--flow)}
+#gate button{width:100%;padding:13px;border-radius:9px;border:1px solid rgba(76,201,240,.4);
+background:var(--panel2);color:var(--flow);font:600 12px system-ui;
+text-transform:uppercase;letter-spacing:1px;cursor:pointer}
+#gerr{font:11px var(--mono);color:var(--alarm);margin-top:11px;min-height:15px}
 
-    .hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-    .hd h1 { font-size: 18px; font-weight: 700; }
-    .hd .sub { font-size: 11px; color: var(--dim); margin-top: 2px; }
-    .pill { display: flex; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; font-size: 11px; font-weight: 600; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
-    .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.mast{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px}
+.mast h1{font-size:15px;font-weight:700;letter-spacing:2.4px}
+.mast .rt{font:600 12px var(--mono);color:var(--dim);font-variant-numeric:tabular-nums}
+.out{font-size:9px;color:var(--faint);cursor:pointer;letter-spacing:1px;text-transform:uppercase}
 
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 12px; position: relative; overflow: hidden; }
-    .gauge { display: flex; flex-direction: column; align-items: center; padding: 16px; }
-    .gwrap { position: relative; width: 180px; height: 180px; }
-    svg { transform: rotate(-90deg); }
-    .gtx { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .gtx b { font-size: 42px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
-    .gtx small { font-size: 10px; color: var(--dim); letter-spacing: 2px; margin-top: 4px; text-transform: uppercase; }
+.rail{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:16px}
+.ann{background:var(--panel);border:1px solid var(--rule);border-radius:9px;
+padding:10px 9px;position:relative;overflow:hidden}
+.ann:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--faint)}
+.ann.g:before{background:var(--live);box-shadow:0 0 12px var(--live)}
+.ann.r:before{background:var(--alarm);box-shadow:0 0 12px var(--alarm)}
+.ann .l{font-size:8.5px;letter-spacing:1.5px;color:var(--dim);text-transform:uppercase}
+.ann .s{font:700 12px var(--mono);margin-top:4px}
+.ann.g .s{color:var(--live)} .ann.r .s{color:var(--alarm)}
+.ann .x{font-size:9px;color:var(--faint);margin-top:2px;font-family:var(--mono)}
 
-    .g3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
-    .tile { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; text-align: center; }
-    .tile .k { font-size: 10px; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
-    .tile .val { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .tile .u { font-size: 11px; color: var(--dim); margin-left: 1px; }
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:13px;
+padding:15px;margin-bottom:11px;overflow:hidden}
+.hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:13px}
+.hdr .t{font-size:9.5px;letter-spacing:1.8px;color:var(--dim);text-transform:uppercase}
+.tag{font:700 9.5px var(--mono);padding:3px 8px;border-radius:5px}
 
-    /* iOS Toggle Switches */
-    .switch-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line); }
-    .switch-row:last-child { border-bottom: none; }
-    .switch-label { font-size: 14px; font-weight: 600; }
-    .switch-sub { font-size: 10px; color: var(--dim); display: block; }
-    .ios-switch { position: relative; width: 52px; height: 30px; appearance: none; background: #2b3648; border-radius: 16px; outline: none; transition: .3s; cursor: pointer; }
-    .ios-switch:checked { background: var(--ok); }
-    .ios-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 26px; height: 26px; background: #fff; border-radius: 50%; transition: .3s; }
-    .ios-switch:checked::after { transform: translateX(22px); }
-    .ios-switch:disabled { opacity: 0.3; cursor: not-allowed; }
+.arcwrap{display:flex;flex-direction:column;align-items:center;padding:6px 0 2px}
+.arcbox{position:relative;width:184px;height:184px}
+.arcbox svg{transform:rotate(-90deg)}
+.arctx{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.arctx b{font:700 46px/1 var(--mono);letter-spacing:-2px;font-variant-numeric:tabular-nums}
+.arctx i{font-style:normal;font-size:9px;letter-spacing:2.6px;color:var(--dim);margin-top:7px}
+.mode{margin-top:12px;font:700 10.5px var(--mono);letter-spacing:1.6px;padding:5px 15px;
+border-radius:99px;background:var(--panel2);border:1px solid var(--rule)}
 
-    .res { margin-top: 10px; padding: 10px; border-radius: 8px; background: var(--card2); border: 1px solid var(--line); font-size: 12px; text-align: center; font-weight: 600; }
-    .res.ok { color: var(--ok); border-color: rgba(0,224,138,0.4); }
-    .res.err { color: var(--bad); border-color: rgba(255,77,94,0.4); }
-    .res.wait { color: var(--warn); }
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:11px}
+.ro{background:var(--panel);border:1px solid var(--rule);border-radius:11px;padding:12px 8px;text-align:center}
+.ro .k{font-size:8.5px;letter-spacing:1.3px;color:var(--dim);text-transform:uppercase}
+.ro .n{font:700 20px var(--mono);margin-top:5px;font-variant-numeric:tabular-nums}
+.ro .u{font-size:10px;color:var(--dim);font-weight:400}
+.ro .pk{font-size:8px;color:var(--faint);font-family:var(--mono);margin-top:2px}
 
-    .ttl { font-size: 11px; color: var(--dim); letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-    .cells { display: flex; flex-direction: column; gap: 5px; }
-    .cell { display: flex; align-items: center; gap: 8px; font-size: 11px; }
-    .cell .n { width: 22px; color: var(--dim); }
-    .bar { flex: 1; height: 14px; background: var(--card2); border-radius: 4px; overflow: hidden; }
-    .fill { height: 100%; background: linear-gradient(90deg, #0e7490, var(--acc)); transition: width .4s; }
-    .fill.hi { background: linear-gradient(90deg, #a16207, #fbbf24); }
-    .fill.lo { background: linear-gradient(90deg, #7f1d1d, #f87171); }
-    .cell .mv { width: 48px; text-align: right; font-weight: 600; }
+/* current flow bar: one axis, two directions, so charge and drive read as
+   opposites of the same quantity rather than two unrelated numbers */
+.flowbar{height:26px;background:var(--panel2);border-radius:7px;position:relative;
+overflow:hidden;margin-bottom:9px}
+.flowbar .mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--rule)}
+.flowbar .seg{position:absolute;top:0;bottom:0;transition:all .45s cubic-bezier(.4,0,.2,1)}
+.flowbar .seg.c{background:linear-gradient(90deg,rgba(245,165,36,.25),var(--charge))}
+.flowbar .seg.d{background:linear-gradient(270deg,rgba(76,201,240,.25),var(--flow))}
+.flowlbl{display:flex;justify-content:space-between;font:9px var(--mono);
+color:var(--faint);letter-spacing:1px;text-transform:uppercase}
 
-    #map { height: 220px; width: 100%; margin: 0 -16px -16px; background: var(--card2); }
-    .leaflet-layer, .leaflet-control-zoom-in, .leaflet-control-zoom-out { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }
-    .off { opacity: .4; filter: saturate(.3); transition: .3s; }
-  </style>
-</head>
-<body>
+.coord{font:600 17px var(--mono);letter-spacing:-.3px}
+.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.meta div{background:var(--panel2);border-radius:8px;padding:8px;text-align:center}
+.meta .k{font-size:8px;letter-spacing:1.1px;color:var(--dim);text-transform:uppercase}
+.meta .v{font:600 13px var(--mono);margin-top:3px}
+#map{height:230px;margin:13px -15px -15px;background:var(--panel2)}
+.leaflet-tile,.leaflet-control-zoom-in,.leaflet-control-zoom-out,.leaflet-control-attribution{
+filter:invert(100%) hue-rotate(180deg) brightness(93%) contrast(88%)}
 
-<div class="config-bar">
-  <input type="text" id="target-host" placeholder="Local IP / Domain (or leave for Firebase Cloud)">
-  <button onclick="saveHost()">Set Mode</button>
+.pp{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
+.sw{background:var(--panel2);border:1px solid var(--rule);border-radius:10px;padding:11px;text-align:center}
+.sw .k{font-size:8.5px;letter-spacing:1.3px;color:var(--dim);text-transform:uppercase}
+.sw .v{font:700 17px var(--mono);margin-top:4px;letter-spacing:1px}
+.sw .a{font:9px var(--mono);color:var(--faint);margin-top:2px}
+.swrow{display:flex;align-items:center;justify-content:space-between;padding:14px 4px;border-bottom:1px solid var(--rule)}
+.swrow:last-of-type{border-bottom:none}
+.swrow .lab{display:flex;flex-direction:column;gap:3px}
+.swrow .lab b{font-size:14px;font-weight:600;letter-spacing:.2px}
+.swrow .lab span{font:10px var(--mono);color:var(--dim);letter-spacing:.3px}
+.tgl{position:relative;width:54px;height:32px;flex:none;border-radius:99px;background:var(--panel2);
+border:1px solid var(--rule);cursor:pointer;transition:background .3s,border-color .3s}
+.tgl .knob{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#5a6675;
+box-shadow:0 1px 3px rgba(0,0,0,.5);transition:transform .28s cubic-bezier(.4,.1,.2,1),background .3s;
+display:flex;align-items:center;justify-content:center}
+.tgl.on{background:rgba(61,220,151,.9);border-color:transparent}
+.tgl.on .knob{transform:translateX(22px);background:#fff}
+.tgl.busy{pointer-events:none}.tgl.busy .knob{background:#fff}
+.tgl .spin{display:none;width:12px;height:12px;border:2px solid rgba(0,0,0,.25);
+border-top-color:#111;border-radius:50%;animation:spin .6s linear infinite}
+.tgl.busy .spin{display:block}
+.tgl.dis{opacity:.32;pointer-events:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.note{margin-top:11px;padding:10px 11px;border-radius:8px;font-size:10.5px;line-height:1.55;
+background:rgba(245,165,36,.07);border:1px solid rgba(245,165,36,.26);color:var(--charge)}
+.res{margin-top:9px;text-align:center;font:600 11px var(--mono);color:var(--dim);min-height:14px}
+
+.cells{display:flex;flex-direction:column;gap:4px}
+.cw{display:flex;align-items:center;gap:9px;font-size:10.5px}
+.cw .n{width:17px;color:var(--faint);font-family:var(--mono);text-align:right;flex:none}
+.track{flex:1;height:13px;background:var(--panel2);border-radius:4px;overflow:hidden}
+.fill{height:100%;background:var(--flow);border-radius:4px;transition:width .5s}
+.fill.hi{background:var(--charge)} .fill.lo{background:var(--alarm)}
+.cw .mv{width:46px;text-align:right;font:600 10.5px var(--mono);flex:none}
+
+.faults div{color:var(--alarm);font-size:11.5px;padding:4px 0;font-weight:600}
+.foot{text-align:center;color:var(--faint);font:10px var(--mono);margin-top:16px;line-height:1.7}
+.stale{opacity:.32;filter:saturate(.25);transition:.35s}
+</style></head><body>
+
+<!-- login gate -->
+<div id="gate"><div class="box">
+  <h2>EVBIKE&#8201;01</h2>
+  <p>Fleet telematics. Sign in to view live vehicle data and controls.</p>
+  <input id="gu" type="email" placeholder="email" autocomplete="username">
+  <input id="gp" type="password" placeholder="password" autocomplete="current-password">
+  <button id="gb">Sign in</button>
+  <div id="gerr"></div>
+</div></div>
+
+<div class="mast">
+  <div><h1>EVBIKE&#8201;01</h1><div class="out" id="signout">sign out</div></div>
+  <span class="rt" id="clk">--:--:--</span>
 </div>
 
-<div class="hd">
-  <div><h1 id="bid">EV Bike</h1><div class="sub" id="sub">Connecting...</div></div>
-  <div class="pill"><span class="dot" id="dot"></span><span id="lnk">OFFLINE</span></div>
+<div class="rail">
+  <div class="ann" id="aLink"><div class="l">Vehicle</div><div class="s" id="sLink">...</div><div class="x" id="xLink">&nbsp;</div></div>
+  <div class="ann" id="aBms"><div class="l">BMS link</div><div class="s" id="sBms">...</div><div class="x" id="xBms">&nbsp;</div></div>
+  <div class="ann" id="aGps"><div class="l">Position</div><div class="s" id="sGps">...</div><div class="x" id="xGps">&nbsp;</div></div>
 </div>
 
-<div id="wrap">
-  <div class="card gauge">
-    <div class="gwrap">
-      <svg width="180" height="180" viewBox="0 0 200 200">
-        <circle cx="100" cy="100" r="86" fill="none" stroke="#182130" stroke-width="15"/>
-        <circle id="arc" cx="100" cy="100" r="86" fill="none" stroke="var(--ok)" stroke-width="15"
-                stroke-linecap="round" stroke-dasharray="540.4" stroke-dashoffset="540.4"/>
-      </svg>
-      <div class="gtx"><b id="soc">--</b><small>State of Charge</small></div>
-    </div>
+<div id="batt">
+<div class="card arcwrap">
+  <div class="arcbox">
+    <svg width="184" height="184" viewBox="0 0 184 184">
+      <circle cx="92" cy="92" r="79" fill="none" stroke="#151E2A" stroke-width="13"/>
+      <circle id="arc" cx="92" cy="92" r="79" fill="none" stroke="#3DDC97" stroke-width="13"
+        stroke-linecap="round" stroke-dasharray="496.4" stroke-dashoffset="496.4"
+        style="transition:stroke-dashoffset .8s cubic-bezier(.4,0,.2,1),stroke .4s"/>
+    </svg>
+    <div class="arctx"><b id="soc">--</b><i>PERCENT</i></div>
   </div>
+  <div class="mode" id="mode">STANDBY</div>
+</div>
 
-  <div class="card">
-    <div class="ttl">MOSFET Control (iOS Switches)</div>
-    <div class="switch-row">
-      <div><span class="switch-label">Charge MOSFET</span><span class="switch-sub" id="chg-st">State: --</span></div>
-      <input type="checkbox" class="ios-switch" id="sw-chg" onchange="toggleFet('chg', this.checked)">
-    </div>
-    <div class="switch-row">
-      <div><span class="switch-label">Discharge MOSFET</span><span class="switch-sub" id="dsg-st">State: --</span></div>
-      <input type="checkbox" class="ios-switch" id="sw-dsg" onchange="toggleFet('dsg', this.checked)">
-    </div>
-    <div class="res" id="res">System Ready</div>
+<div class="card">
+  <div class="hdr"><div class="t">Current flow</div><span class="tag" id="flowtag">IDLE</span></div>
+  <div class="flowbar"><div class="mid"></div>
+    <div class="seg d" id="segD" style="right:50%;width:0"></div>
+    <div class="seg c" id="segC" style="left:50%;width:0"></div>
   </div>
-
-  <div class="card">
-    <div class="ttl">GPS & Trajectory (30m) <span id="spd" style="color:var(--tx)">0.0 km/h</span></div>
-    <div id="map"></div>
-  </div>
-
-  <div class="g3">
-    <div class="tile"><div class="k">Voltage</div><div class="val"><span id="v">--</span><span class="u">V</span></div></div>
-    <div class="tile"><div class="k">Current</div><div class="val"><span id="i">--</span><span class="u">A</span></div></div>
-    <div class="tile"><div class="k">Power</div><div class="val"><span id="kw">--</span><span class="u">kW</span></div></div>
-  </div>
-
-  <div class="g3">
-    <div class="tile"><div class="k">Remaining</div><div class="val"><span id="ah">--</span><span class="u">Ah</span></div></div>
-    <div class="tile"><div class="k">Temp</div><div class="val"><span id="tp">--</span><span class="u">°C</span></div></div>
-    <div class="tile"><div class="k">Cycles</div><div class="val" id="cyc">--</div></div>
-  </div>
-
-  <div class="card">
-    <div class="ttl"><span>Cell Voltage Balance</span><span id="dmv">-- mV</span></div>
-    <div class="cells" id="cl"></div>
+  <div class="flowlbl"><span>Drive</span><span>Charge</span></div>
+  <div class="g3" style="margin-top:12px;margin-bottom:0">
+    <div class="ro"><div class="k">Drive</div><div class="n"><span id="idsg">--</span><span class="u">A</span></div><div class="pk" id="pkdsg">&nbsp;</div></div>
+    <div class="ro"><div class="k">Charge</div><div class="n"><span id="ichg">--</span><span class="u">A</span></div><div class="pk" id="pkchg">&nbsp;</div></div>
+    <div class="ro"><div class="k">Power</div><div class="n"><span id="kw">--</span><span class="u">kW</span></div><div class="pk">&nbsp;</div></div>
   </div>
 </div>
+
+<div class="g3">
+  <div class="ro"><div class="k">Pack</div><div class="n"><span id="v">--</span><span class="u">V</span></div></div>
+  <div class="ro"><div class="k">Charge left</div><div class="n"><span id="ah">--</span><span class="u">Ah</span></div></div>
+  <div class="ro"><div class="k">Cell temp</div><div class="n"><span id="tp">--</span><span class="u">C</span></div></div>
+</div>
+</div>
+
+<div class="card">
+  <div class="hdr"><div class="t">Position</div><span class="tag" id="fixtag">NO FIX</span></div>
+  <div class="coord" id="coord">awaiting satellites</div>
+  <div class="meta">
+    <div><div class="k">Speed</div><div class="v" id="spd">--</div></div>
+    <div><div class="k">Accuracy</div><div class="v" id="acc">--</div></div>
+    <div><div class="k">Trip</div><div class="v" id="km">--</div></div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<div class="card">
+  <div class="hdr"><div class="t">Immobilizer &amp; charge control</div>
+    <span class="tag" id="busytag" style="display:none">WORKING</span></div>
+
+  <div class="swrow">
+    <div class="lab"><b>Charging</b><span id="aChg">charge MOSFET</span></div>
+    <div class="tgl" id="tChg" onclick="toggle('chg')"><div class="knob"><div class="spin"></div></div></div>
+  </div>
+  <div class="swrow">
+    <div class="lab"><b>Drive power</b><span id="aDsg">discharge MOSFET</span></div>
+    <div class="tgl crit" id="tDsg" onclick="toggle('dsg')"><div class="knob"><div class="spin"></div></div></div>
+  </div>
+
+  <div class="note" id="note">Turning drive power off immobilizes the bike. Refused while moving or drawing 5 A or more.</div>
+  <div class="res" id="res">ready</div>
+</div>
+
+<div class="card">
+  <div class="hdr"><div class="t">Cell balance</div><span class="tag" id="hb">--</span></div>
+  <div class="meta" style="margin:0 0 12px">
+    <div><div class="k">Lowest</div><div class="v" id="mn">--</div></div>
+    <div><div class="k">Spread</div><div class="v" id="dmv">--</div></div>
+    <div><div class="k">Highest</div><div class="v" id="mx">--</div></div>
+  </div>
+  <div class="cells" id="cells"></div>
+</div>
+
+<div class="card" id="fcard" style="display:none">
+  <div class="hdr"><div class="t">Active faults</div></div>
+  <div class="faults" id="faults"></div>
+</div>
+
+<div class="foot" id="foot">&nbsp;</div>
 
 <script type="module">
-  // Import Firebase Web SDK Modules
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-  import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-database.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getDatabase, ref, onValue, set }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-  // Official Firebase Configuration
-  const firebaseConfig = {
-    apiKey: "AIzaSyCd0iCbS4KB_EO2cMjwEhCcw0MfFzMTEr4",
-    authDomain: "ev-bike-fleet-telematics.firebaseapp.com",
-    databaseURL: "https://ev-bike-fleet-telematics-default-rtdb.firebaseio.com",
-    projectId: "ev-bike-fleet-telematics",
-    storageBucket: "ev-bike-fleet-telematics.firebasestorage.app",
-    messagingSenderId: "436426285633",
-    appId: "1:436426285633:web:d79b683d51214caac0dcc0",
-    measurementId: "G-5DRQNRHCLP"
-  };
+// ---------------------------------------------------------------------------
+// Firebase config. These values are public by design -- they identify the
+// project, they do not grant access. Access is enforced by the database rules
+// plus the signed-in user, which is why the login gate exists.
+// ---------------------------------------------------------------------------
+const CFG = {
+  apiKey:      "PASTE_YOUR_WEB_API_KEY",
+  authDomain:  "ev-bike-fleet-telematics.firebaseapp.com",
+  databaseURL: "https://ev-bike-fleet-telematics-default-rtdb.firebaseio.com",
+  projectId:   "ev-bike-fleet-telematics"
+};
 
-  const $ = i => document.getElementById(i);
-  const C = 540.4;
-  let map, mark, path, isExecuting = false;
+const app  = initializeApp(CFG);
+const auth = getAuth(app);
+const db   = getDatabase(app);
 
-  let localHost = localStorage.getItem('ev_local_host') || '';
-  $('target-host').value = localHost;
+const $ = id => document.getElementById(id);
+const C = 496.4;
+let map, marker, trail, trailPts = [], lastSentTs = 0, user = null;
 
-  window.saveHost = () => {
-    let val = $('target-host').value.trim();
-    if (val && !val.startsWith('http')) val = 'http://' + val;
-    localStorage.setItem('ev_local_host', val);
-    location.reload();
-  };
+// ---- auth gate ------------------------------------------------------------
+$('gb').onclick = () => {
+  $('gerr').textContent = '';
+  signInWithEmailAndPassword(auth, $('gu').value.trim(), $('gp').value)
+    .catch(e => { $('gerr').textContent = e.code.replace('auth/','').replace(/-/g,' '); });
+};
+$('gp').addEventListener('keydown', e => { if (e.key === 'Enter') $('gb').click(); });
+$('signout').onclick = () => signOut(auth);
 
-  function initMap(lat, lng) {
-    map = L.map('map').setView([lat, lng], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-    mark = L.circleMarker([lat, lng], { color: '#080b10', weight: 2, fillColor: 'var(--acc)', fillOpacity: 1, radius: 8 }).addTo(map);
-    path = L.polyline([], { color: 'var(--acc)', weight: 4, opacity: 0.8 }).addTo(map);
+onAuthStateChanged(auth, u => {
+  user = u;
+  $('gate').style.display = u ? 'none' : 'flex';
+  if (u) start();
+});
+
+// ---- control --------------------------------------------------------------
+// iOS toggle: flips from the confirmed hardware state the bike last reported
+window.toggle = function (fet) {
+  const el = document.getElementById(fet === 'chg' ? 'tChg' : 'tDsg');
+  if (el.classList.contains('dis') || el.classList.contains('busy')) return;
+  window.sw(fet, el.classList.contains('on') ? 0 : 1);
+};
+
+window.sw = function (fet, on) {
+  if (!user) return;
+  if (fet === 'dsg' && !on) {
+    if (!confirm('Turn drive power off?\n\nThis immobilizes the bike by cutting drive power. Only do this when the bike is parked and nobody is riding it.')) return;
   }
+  const ts = Date.now();
+  lastSentTs = ts;
+  $('res').textContent = 'sending to bike...';
+  set(ref(db, 'cmd'), { fet: fet, on: on ? 1 : 0, ts: ts, by: user.email })
+    .then(() => { $('res').textContent = 'sent, waiting for the bike...'; })
+    .catch(e => { $('res').textContent = 'could not send: ' + e.code; });
+  setTimeout(() => {
+    if ($('res').textContent.indexOf('waiting') >= 0)
+      $('res').textContent = 'no reply from the bike';
+  }, 20000);
+};
 
-  function paint(d) {
-    if (!d) return;
-    $('bid').textContent = d.id || "EVBIKE";
-    $('sub').textContent = (d.ns || 0) + 'S LiFePO4 · ' + (d.ahn || 0) + ' Ah · ' + (d.rssi || 0) + ' dBm';
+// ---- rendering ------------------------------------------------------------
+function ann(id, txt, sub, good) {
+  $(id).className = 'ann ' + (good ? 'g' : 'r');
+  $('s' + id.substring(1)).textContent = txt;
+  $('x' + id.substring(1)).innerHTML = sub || '&nbsp;';
+}
 
-    const on = d.ok == 1;
-    $('dot').className = 'dot' + (on ? ' on' : '');
-    $('lnk').textContent = on ? 'LIVE' : 'OFFLINE';
-    $('wrap').className = on ? '' : 'off';
+function initMap(lat, lng) {
+  map = L.map('map', { zoomControl: true, attributionControl: false }).setView([lat, lng], 16);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  trail  = L.polyline([], { color: '#4CC9F0', weight: 3, opacity: .75 }).addTo(map);
+  marker = L.circleMarker([lat, lng], { radius: 7, color: '#070A0F', weight: 2,
+             fillColor: '#3DDC97', fillOpacity: 1 }).addTo(map);
+}
 
-    const soc = d.soc || 0;
-    $('soc').textContent = soc.toFixed(1);
-    $('arc').style.strokeDashoffset = C - (C * Math.min(soc, 100) / 100);
-    $('arc').style.stroke = soc > 50 ? 'var(--ok)' : soc > 20 ? 'var(--warn)' : 'var(--bad)';
+function paint(d) {
+  if (!d) return;
+  const fresh = (Date.now() - (d.rx || 0)) < 15000;
 
-    $('v').textContent = (d.v || 0).toFixed(1);
-    
-    // Amperes Formatting
-    const current = d.i || 0;
-    $('i').textContent = current.toFixed(1);
-    $('i').style.color = current < -0.1 ? 'var(--acc)' : current > 0.1 ? 'var(--ok)' : 'var(--tx)';
-    
-    $('kw').textContent = Math.abs(d.kw || 0).toFixed(2);
-    $('ah').textContent = (d.ah || 0).toFixed(1);
-    $('tp').textContent = d.t !== undefined ? d.t : '--';
-    $('cyc').textContent = d.cyc || 0;
+  $('clk').textContent = d.clk || '--:--:--';
+  ann('aLink', fresh ? 'REPORTING' : 'SILENT',
+      fresh ? (d.ip || '') : 'no update', fresh);
+  ann('aBms', d.bmsok ? 'CONNECTED' : 'NOT IN RANGE',
+      d.bmsok ? (d.rssi + ' dBm') : 'scanning', d.bmsok);
+  ann('aGps', d.gpsok ? 'FIX ' + d.sat + ' SATS' : 'NO FIX',
+      d.gpsok ? ('hdop ' + (d.hdop || 0).toFixed(1)) : ((d.sat || 0) + ' in view'), d.gpsok);
+
+  $('batt').className = d.bmsok ? '' : 'stale';
+
+  const soc = d.soc || 0;
+  $('soc').textContent = d.bmsok ? soc.toFixed(0) : '--';
+  $('arc').style.strokeDashoffset = C - (C * Math.min(soc, 100) / 100);
+  $('arc').style.stroke = soc > 50 ? '#3DDC97' : soc > 20 ? '#F5A524' : '#FF5C6E';
+  $('mode').textContent = ['STANDBY','CHARGING','DRIVING'][d.st] || 'STANDBY';
+  $('mode').style.color = d.st == 1 ? '#F5A524' : d.st == 2 ? '#4CC9F0' : '#7A8BA3';
+
+  // current flow, drawn on one axis so the two directions read as opposites
+  const ic = d.ichg || 0, id = d.idsg || 0;
+  const span = Math.max(d.pkchg || 0, d.pkdsg || 0, 10);
+  $('segC').style.width = Math.min(50, ic / span * 50) + '%';
+  $('segD').style.width = Math.min(50, id / span * 50) + '%';
+  $('ichg').textContent = ic.toFixed(1);
+  $('idsg').textContent = id.toFixed(1);
+  $('pkchg').textContent = 'peak ' + (d.pkchg || 0).toFixed(1);
+  $('pkdsg').textContent = 'peak ' + (d.pkdsg || 0).toFixed(1);
+  $('kw').textContent = Math.abs(d.kw || 0).toFixed(2);
+  const ft = $('flowtag');
+  ft.textContent = ic > 0.1 ? 'CHARGING' : id > 0.1 ? 'DRIVING' : 'IDLE';
+  ft.style.background = ic > 0.1 ? 'rgba(245,165,36,.14)' : id > 0.1 ? 'rgba(76,201,240,.14)' : 'rgba(255,255,255,.05)';
+  ft.style.color = ic > 0.1 ? '#F5A524' : id > 0.1 ? '#4CC9F0' : '#7A8BA3';
+
+  $('v').textContent  = (d.v || 0).toFixed(1);
+  $('ah').textContent = (d.ah || 0).toFixed(1);
+  $('tp').textContent = d.t || 0;
+
+  const fx = $('fixtag');
+  if (d.gpsok) {
+    fx.textContent = d.sat + ' SATS';
+    fx.style.background = 'rgba(61,220,151,.14)'; fx.style.color = '#3DDC97';
+    $('coord').textContent = d.lat.toFixed(6) + ',  ' + d.lon.toFixed(6);
     $('spd').textContent = (d.spd || 0).toFixed(1) + ' km/h';
-
-    // Update iOS Switches
-    if (!isExecuting) {
-      $('sw-chg').checked = (d.chg == 1);
-      $('sw-dsg').checked = (d.dsg == 1);
-      $('sw-chg').disabled = !on || d.busy == 1;
-      $('sw-dsg').disabled = !on || d.busy == 1;
-      $('chg-st').textContent = 'State: ' + (d.chg ? 'ON' : 'OFF');
-      $('dsg-st').textContent = 'State: ' + (d.dsg ? 'ON' : 'OFF');
-    }
-
-    if (d.lat && d.lng && d.lat !== 0) {
-      if (!map) initMap(d.lat, d.lng);
-      else {
-        mark.setLatLng([d.lat, d.lng]);
-        if (!map.getBounds().contains([d.lat, d.lng])) map.panTo([d.lat, d.lng]);
-        if (d.trk && d.trk.length > 0) path.setLatLngs(d.trk);
+    $('acc').textContent = '+/- ' + Math.round((d.hdop || 0) * 2.5) + ' m';
+    if (!map) initMap(d.lat, d.lon);
+    else {
+      marker.setLatLng([d.lat, d.lon]);
+      const last = trailPts[trailPts.length - 1];
+      if (!last || Math.abs(last[0]-d.lat) > 1e-5 || Math.abs(last[1]-d.lon) > 1e-5) {
+        trailPts.push([d.lat, d.lon]);
+        if (trailPts.length > 500) trailPts.shift();   // trail lives in the browser
+        trail.setLatLngs(trailPts);
       }
+      if (!map.getBounds().contains([d.lat, d.lon])) map.panTo([d.lat, d.lon]);
     }
-
-    $('dmv').textContent = 'Δ ' + (d.dmv || 0) + ' mV';
-    let h = '';
-    if (d.c) {
-      const lo = (d.mn || 0) - 3, hi = (d.mx || 0) + 3, sp = Math.max(hi - lo, 1);
-      d.c.forEach((mv, k) => {
-        const w = Math.max(3, Math.min(100, (mv - lo) / sp * 100));
-        const cls = (k + 1) == d.mxi ? 'fill hi' : (k + 1) == d.mni ? 'fill lo' : 'fill';
-        h += `<div class="cell"><span class="n">${k+1}</span><div class="bar"><div class="${cls}" style="width:${w}%"></div></div><span class="mv">${mv}</span></div>`;
-      });
-    }
-    $('cl').innerHTML = h;
-  }
-
-  window.toggleFet = (fet, state) => {
-    isExecuting = true;
-    $('res').textContent = 'Sending Command...';
-    $('res').className = 'res wait';
-    $('sw-chg').disabled = true;
-    $('sw-dsg').disabled = true;
-
-    // Send control request to local ESP32 endpoint
-    let baseUrl = localHost || 'http://evbike-test.local';
-    fetch(`${baseUrl}/api/mos?fet=${fet}&on=${state ? 1 : 0}`)
-      .then(r => r.text())
-      .then(t => {
-        $('res').textContent = t;
-        $('res').className = 'res ' + (t.includes('CONFIRMED') || t.includes('SENT') ? 'ok' : 'err');
-        setTimeout(() => { isExecuting = false; }, 1500);
-      })
-      .catch(() => {
-        $('res').textContent = 'Command Failed (Ensure device is connected on local LAN)';
-        $('res').className = 'res err';
-        setTimeout(() => { isExecuting = false; }, 1500);
-      });
-  };
-
-  // Connection Engine: Local LAN vs Firebase Cloud Realtime Stream
-  if (localHost) {
-    async function tick() {
-      try {
-        const r = await fetch(localHost + '/api/data', { cache: 'no-store' });
-        paint(await r.json());
-      } catch (e) {}
-    }
-    setInterval(tick, 1500);
-    tick();
   } else {
-    // Default: Firebase Realtime Streaming
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
-    onValue(ref(db, 'bike'), (snapshot) => {
-      paint(snapshot.val());
+    fx.textContent = 'NO FIX';
+    fx.style.background = 'rgba(255,92,110,.14)'; fx.style.color = '#FF5C6E';
+    $('coord').textContent = 'awaiting satellites';
+    $('spd').textContent = '--'; $('acc').textContent = '--';
+  }
+  $('km').textContent = (d.km || 0).toFixed(1) + ' km';
+
+  const busy = d.busy == 1, live = d.bmsok == 1 && fresh;
+  const tChg = $('tChg'), tDsg = $('tDsg');
+  tChg.classList.toggle('on', !!d.chg);
+  tDsg.classList.toggle('on', !!d.dsg);
+  tChg.classList.toggle('busy', busy);
+  tDsg.classList.toggle('busy', busy);
+  // lock a toggle when the action it would trigger cannot succeed
+  tChg.classList.toggle('dis', !live || (!d.chg && d.canchg == 0));
+  tDsg.classList.toggle('dis', !live || (d.dsg && d.canoff == 0));
+  const enfC = d.tchg != -1 && d.tchg != (d.chg?1:0);
+  const enfD = d.tdsg != -1 && d.tdsg != (d.dsg?1:0);
+  $('aChg').textContent = enfC ? 'holding ' + (d.tchg? 'on':'off') + '...'
+                        : d.chg ? (ic > 0.1 ? ic.toFixed(1) + ' A flowing in' : 'enabled, idle') : 'charging blocked';
+  $('aDsg').textContent = enfD ? 'holding ' + (d.tdsg? 'on':'off') + '...'
+                        : d.dsg ? (id > 0.1 ? id.toFixed(1) + ' A drive draw' : 'enabled, idle') : 'IMMOBILIZED';
+
+  $('busytag').style.display = busy ? 'inline-block' : 'none';
+  $('busytag').style.background = 'rgba(245,165,36,.14)';
+  $('busytag').style.color = '#F5A524';
+
+  if (!fresh)          $('note').textContent = 'The bike is offline. Controls are unavailable.';
+  else if (!live)      $('note').textContent = 'Controls need a live BMS link.';
+  else if (!d.dsg)     $('note').textContent = 'Bike is immobilized. Turn drive power on to release it. Charging stays locked until then.';
+  else if (d.canoff==0)$('note').textContent = 'Cannot immobilize now: ' + (d.why || 'not safe') + '. Park and drop below 5 A.';
+  else                 $('note').textContent = 'Turning drive power off immobilizes the bike. Only when parked and below 5 A.';
+
+  const hb = $('hb'); hb.textContent = d.hv || '--';
+  const col = {'HEALTHY':'#3DDC97','UNDER LOAD':'#4CC9F0','WATCH':'#F5A524',
+               'INVESTIGATE':'#F5A524','ALARM':'#FF5C6E','NO DATA':'#4A5568'}[d.hv] || '#4A5568';
+  hb.style.color = col; hb.style.background = 'rgba(255,255,255,.05)';
+  $('mn').textContent  = d.mn ? d.mn + ' mV' : '--';
+  $('mx').textContent  = d.mx ? d.mx + ' mV' : '--';
+  $('dmv').textContent = (d.dmv || 0) + ' mV';
+
+  let h = '';
+  if (d.c && d.c.length) {
+    const lo = d.mn - 3, sp = Math.max(d.mx - d.mn + 6, 1);
+    d.c.forEach((mv, k) => {
+      const w = Math.max(4, Math.min(100, (mv - lo) / sp * 100));
+      const cl = (k+1) == d.mxi ? 'fill hi' : (k+1) == d.mni ? 'fill lo' : 'fill';
+      h += '<div class="cw"><span class="n">' + (k+1) + '</span><div class="track"><div class="' +
+           cl + '" style="width:' + w + '%"></div></div><span class="mv">' + mv + '</span></div>';
     });
   }
+  $('cells').innerHTML = h;
+
+  if (d.f && d.f.length) { $('fcard').style.display = 'block';
+    $('faults').innerHTML = d.f.map(x => '<div>' + x + '</div>').join(''); }
+  else $('fcard').style.display = 'none';
+
+  const u = d.up || 0, hh = Math.floor(u/3600), mm = Math.floor(u%3600/60);
+  $('foot').innerHTML = 'logged ' + (d.lg||0) + ' rows' + (d.lf ? ' / ' + d.lf + ' failed' : '') +
+    ' &middot; ' + (d.lmsg||'') + '<br>energy out ' + (d.eout||0).toFixed(2) +
+    ' kWh &middot; in ' + (d.ein||0).toFixed(2) + ' kWh &middot; up ' + hh + 'h ' + mm + 'm';
+}
+
+// ---- live subscriptions ---------------------------------------------------
+let started = false;
+function start() {
+  if (started) return; started = true;
+
+  onValue(ref(db, 'bike'), snap => {
+    const d = snap.val();
+    if (d) { d.rx = Date.now(); paint(d); }
+  }, err => { ann('aLink', 'NO ACCESS', err.code, false); });
+
+  // the bike writes the outcome of each command here
+  onValue(ref(db, 'ack'), snap => {
+    const a = snap.val();
+    if (!a || !a.msg) return;
+    if (lastSentTs && a.ts !== lastSentTs) return;
+    $('res').textContent = a.msg;
+  });
+
+  // mark the vehicle silent if no update arrives
+  setInterval(() => {
+    const s = $('sLink');
+    if (s.textContent === 'REPORTING') { /* refreshed by paint() */ }
+  }, 5000);
+}
 </script>
-</body>
-</html>
+</body></html>
